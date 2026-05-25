@@ -1,6 +1,10 @@
 pipeline {
   agent any
 
+  options {
+    timeout(time: 30, unit: 'MINUTES')
+  }
+
   triggers {
     // PR/merge handled by the multibranch SCM webhook; this cron adds a nightly drift check.
     cron('H 2 * * *')
@@ -13,7 +17,9 @@ pipeline {
   }
 
   environment {
-    VAULT_ADDR             = "${params.VAULT_ADDR_OVERRIDE ?: env.VAULT_ADDR}"
+    // Falls back to a node/global VAULT_ADDR if no override; coerces an unset value to '' (not the
+    // literal "null") so the Setup-stage guard below catches a missing address cleanly.
+    VAULT_ADDR             = "${params.VAULT_ADDR_OVERRIDE ?: (env.VAULT_ADDR ?: '')}"
     STRICT_MODE            = "${params.STRICT_MODE}"
     VAULT_PARENT_NAMESPACE = 'automation'
     VAULT_JWT_MOUNT        = 'jwt'
@@ -30,12 +36,14 @@ pipeline {
       steps {
         sh '''
           set -e
+          : "${VAULT_ADDR:?VAULT_ADDR must be set -- pass the VAULT_ADDR_OVERRIDE parameter or set it in the node environment}"
+          : "${CI_OIDC_TOKEN:?CI_OIDC_TOKEN must be injected by the platform OIDC credential step}"
           curl -fSL "$WHEELHOUSE_URL" -o wheelhouse.tar.gz
           tar xzf wheelhouse.tar.gz
           python3 -m venv .venv
           . .venv/bin/activate
           python3 -m pip install --no-index --find-links=./wheelhouse -r requirements.txt
-          python -c "import hvac, jwt, cryptography, pytest; print('deps OK')"
+          python3 -c "import hvac, jwt, cryptography, pytest; print('deps OK')"
         '''
       }
     }
@@ -56,7 +64,7 @@ pipeline {
 
   post {
     always {
-      junit allowEmptyResults: false, testResults: 'reports/junit.xml'
+      junit allowEmptyResults: true, testResults: 'reports/junit.xml'
       archiveArtifacts artifacts: 'reports/report.html', allowEmptyArchive: true
       // Optional in-UI HTML (requires the HTML Publisher plugin):
       // publishHTML(target: [reportDir: 'reports', reportFiles: 'report.html', reportName: 'Vault Suite'])
