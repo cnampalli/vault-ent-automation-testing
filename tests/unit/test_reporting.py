@@ -19,3 +19,24 @@ def test_format_summary_renders_counts_and_total():
 def test_empty_results():
     out = format_summary({})
     assert "TOTAL: 0 passed, 0 failed, 0 skipped" in out
+
+
+def test_area_line_mixed_passed_and_skipped_does_not_show_skipped_label():
+    from lib.reporting import _area_line
+    line = _area_line("Auth", {"passed": 1, "failed": 0, "skipped": 2})
+    assert "SKIPPED" not in line
+    assert "1 passed" in line
+    assert "2 skipped" in line
+
+
+def test_area_line_failed_and_skipped_surfaces_failure():
+    from lib.reporting import _area_line
+    line = _area_line("Auth", {"passed": 0, "failed": 1, "skipped": 2})
+    assert "SKIPPED" not in line
+    assert "1 failed" in line
+
+
+def test_area_line_all_zero_shows_zero_passed():
+    from lib.reporting import _area_line
+    line = _area_line("Auth", {"passed": 0, "failed": 0, "skipped": 0})
+    assert "0 passed" in line

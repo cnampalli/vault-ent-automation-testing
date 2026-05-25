@@ -4,6 +4,7 @@ HEADER = "===== Vault Ent Functional Suite ====="
 def _area_line(area: str, r: dict) -> str:
     passed, failed, skipped = r.get("passed", 0), r.get("failed", 0), r.get("skipped", 0)
     if skipped and not passed and not failed:
+        # reason is only shown for fully-skipped areas; partial runs show counts
         status = f"SKIPPED ({r.get('reason') or 'precondition not met'})"
     else:
         parts = []
@@ -14,8 +15,9 @@ def _area_line(area: str, r: dict) -> str:
         if skipped:
             parts.append(f"{skipped} skipped")
         status = ", ".join(parts) or "0 passed"
-    dots = "." * max(2, 22 - len(area))
-    return f"{area} {dots} {status}"
+    padded = f"{area:<22}"
+    dots = "." * max(2, 24 - len(area))
+    return f"{padded} {dots} {status}"
 
 
 def format_summary(area_results: dict) -> str:
