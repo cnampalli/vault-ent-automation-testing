@@ -19,4 +19,4 @@ See `docs/superpowers/specs/2026-05-25-vault-ent-automation-testing-design.md`.
 | `BUILD_TAG` | CI build identifier (used to name the ephemeral namespace) |
 
 ## Air-gapped install
-See `scripts/build-wheelhouse.sh` (added in a later task) and the design doc §8.
+See `scripts/build-wheelhouse.sh` and the design doc §8.

@@ -11,8 +11,9 @@ def requires_env(*env_vars: str):
 
     Env vars are read at collection time (module import), so they must be set
     in the process environment before pytest starts -- not inside fixtures.
-    In STRICT_MODE the suite-level conftest converts skips to failures; here we
-    always express the dependency as a skipif so non-strict runs stay green.
+
+    Note: a STRICT_MODE that converts these skips into failures is planned for a
+    later phase and is NOT yet enforced; today, missing deps always skip.
     """
     import pytest  # lazy: keeps lib/ free of a hard pytest runtime dependency
 

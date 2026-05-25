@@ -64,6 +64,8 @@ pipeline {
 
   post {
     always {
+      // lenient on purpose for bring-up: a Setup-stage failure shouldn't add a spurious
+      // "no test results" error on top of the real one. Tighten to false once known-green.
       junit allowEmptyResults: true, testResults: 'reports/junit.xml'
       archiveArtifacts artifacts: 'reports/report.html', allowEmptyArchive: true
       // Optional in-UI HTML (requires the HTML Publisher plugin):
