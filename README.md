@@ -27,7 +27,7 @@ agent, not on every build.
    `./scripts/build-wheelhouse.sh [PYVER] [ABI] [PLATFORM]` -> produces `wheelhouse.tar.gz`.
 2. **Transfer + extract** `wheelhouse.tar.gz` onto the agent (or the agent image build).
 3. **On the agent:** provision the venv from the pinned `requirements.txt`.
-   `WHEELHOUSE_DIR=./wheelhouse VENV_DIR=/opt/vault-ent-suite/venv ./scripts/provision-agent.sh`
+   `WHEELHOUSE_DIR=./wheelhouse VENV_DIR=/opt/vault-ent-suite/venv bash scripts/provision-agent.sh`
    Re-run whenever `requirements.txt` changes. For reproducibility, prefer baking this into the
    agent's base image rather than hand-running it.
 4. **CI builds** activate `$VENV_DIR` (Jenkinsfile `VENV_DIR` parameter, default
