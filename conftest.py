@@ -1,4 +1,5 @@
-import os
+from typing import Iterable
+
 import pytest
 
 from config.settings import Settings
@@ -9,9 +10,11 @@ from lib.reporting import format_summary
 
 # ---- result aggregation (pure, unit-tested) -------------------------------
 
-def aggregate_outcomes(records):
+def aggregate_outcomes(
+    records: Iterable[tuple[str, str, str | None]],
+) -> dict[str, dict]:
     """records: iterable of (area, outcome, reason). Returns area -> counts dict."""
-    agg = {}
+    agg: dict[str, dict] = {}
     for area, outcome, reason in records:
         row = agg.setdefault(area, {"passed": 0, "failed": 0, "skipped": 0, "reason": None})
         if outcome in row:
@@ -21,12 +24,13 @@ def aggregate_outcomes(records):
     # normalize reason text (strip pytest's "Skipped: " prefix) before returning
     for row in agg.values():
         if row["reason"]:
-            row["reason"] = row["reason"].replace("Skipped: ", "").strip()
+            row["reason"] = row["reason"].removeprefix("Skipped: ").strip()
     return agg
 
 
 # ---- collect area marker per test id --------------------------------------
-
+# NOTE: the module-level state below is NOT pytest-xdist safe (each worker would
+# get its own copy). Single-process runs only; revisit if xdist is ever added.
 _AREA_BY_ID = {}
 _RECORDS = []
 
@@ -34,7 +38,10 @@ _RECORDS = []
 def pytest_collection_modifyitems(items):
     for item in items:
         marker = item.get_closest_marker("area")
-        area = marker.args[0] if marker and marker.args else item.module.__name__.split(".")[-1]
+        if marker and marker.args:
+            area = marker.args[0]
+        else:
+            area = item.module.__name__.split(".")[-1] if item.module else "uncategorized"
         _AREA_BY_ID[item.nodeid] = area
 
 
@@ -86,6 +93,12 @@ def ephemeral_namespace(settings, admin_client):
 
 @pytest.fixture()
 def ns_client(settings, ephemeral_namespace, admin_client):
-    """A client scoped to the ephemeral namespace for use inside tests."""
+    """A client scoped to the ephemeral namespace for the duration of one test.
+
+    Snapshots and restores the shared session client's namespace so multiple
+    tests using this fixture don't create a test-order dependency.
+    """
+    original = admin_client.namespace
     admin_client.namespace = ephemeral_namespace
-    return admin_client
+    yield admin_client
+    admin_client.namespace = original
