@@ -14,6 +14,7 @@ pipeline {
     string(name: 'VAULT_ADDR_OVERRIDE', defaultValue: '', description: 'Override VAULT_ADDR')
     booleanParam(name: 'STRICT_MODE', defaultValue: false, description: 'Fail (not skip) on missing external deps')
     string(name: 'VENV_DIR', defaultValue: '/opt/vault-ent-suite/venv', description: 'Path to the pre-provisioned virtualenv on the agent (see scripts/provision-agent.sh)')
+    string(name: 'AREAS', defaultValue: '', description: 'Comma-separated area filter (e.g. "kv,transit,approle"); empty = run all available')
   }
 
   environment {
@@ -22,6 +23,7 @@ pipeline {
     VAULT_ADDR             = "${params.VAULT_ADDR_OVERRIDE ?: (env.VAULT_ADDR ?: '')}"
     STRICT_MODE            = "${params.STRICT_MODE}"
     VENV_DIR               = "${params.VENV_DIR}"
+    AREAS                  = "${params.AREAS}"
     VAULT_PARENT_NAMESPACE = 'automation'
     VAULT_JWT_MOUNT        = 'jwt'
     VAULT_JWT_ROLE         = 'test-runner'

@@ -1,3 +1,5 @@
+import os
+import warnings
 from typing import Iterable
 
 import pytest
@@ -28,6 +30,33 @@ def aggregate_outcomes(
     return agg
 
 
+def parse_areas(raw: str | None) -> list[str]:
+    """Parse a comma-separated AREAS string into normalized lowercase filters."""
+    return [a.strip().lower() for a in (raw or "").split(",") if a.strip()]
+
+
+def select_areas(area_by_id: dict, filters: list[str]):
+    """Given {nodeid: area} and lowercase filters, return (keep_ids, drop_ids, unmatched_filters).
+
+    A test is kept if any filter is a case-insensitive substring of its area name.
+    With no filters, everything is kept. unmatched_filters are filters that matched no area
+    (likely typos), useful for warning the operator.
+    """
+    if not filters:
+        return list(area_by_id.keys()), [], []
+    keep, drop, matched = [], [], set()
+    for nodeid, area in area_by_id.items():
+        area_l = (area or "").lower()
+        hit = next((f for f in filters if f in area_l), None)
+        if hit:
+            matched.add(hit)
+            keep.append(nodeid)
+        else:
+            drop.append(nodeid)
+    unmatched = [f for f in filters if f not in matched]
+    return keep, drop, unmatched
+
+
 # ---- collect area marker per test id --------------------------------------
 # NOTE: the module-level state below is NOT pytest-xdist safe (each worker would
 # get its own copy). Single-process runs only; revisit if xdist is ever added.
@@ -35,7 +64,17 @@ _AREA_BY_ID = {}
 _RECORDS = []
 
 
-def pytest_collection_modifyitems(items):
+def pytest_addoption(parser):
+    parser.addoption(
+        "--areas",
+        action="store",
+        default=None,
+        help="Comma-separated area filters; run only tests whose area marker matches "
+             "(case-insensitive substring). Also read from the AREAS environment variable.",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
     for item in items:
         marker = item.get_closest_marker("area")
         if marker and marker.args:
@@ -43,6 +82,29 @@ def pytest_collection_modifyitems(items):
         else:
             area = item.module.__name__.split(".")[-1] if item.module else "uncategorized"
         _AREA_BY_ID[item.nodeid] = area
+
+    raw = config.getoption("--areas") or os.environ.get("AREAS")
+    filters = parse_areas(raw)
+    if not filters:
+        return
+
+    keep_ids, _drop_ids, unmatched = select_areas(_AREA_BY_ID, filters)
+    if unmatched:
+        warnings.warn(
+            f"AREAS filter(s) matched no area and were ignored: {unmatched}",
+            stacklevel=1,
+        )
+    if not keep_ids:
+        raise pytest.UsageError(
+            f"AREAS={raw!r} selected no tests. Available areas: "
+            f"{sorted(set(_AREA_BY_ID.values()))}"
+        )
+
+    keep = set(keep_ids)
+    deselected = [it for it in items if it.nodeid not in keep]
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = [it for it in items if it.nodeid in keep]
 
 
 def pytest_runtest_logreport(report):

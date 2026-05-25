@@ -18,6 +18,29 @@ See `docs/superpowers/specs/2026-05-25-vault-ent-automation-testing-design.md`.
 | `STRICT_MODE` | `true` => missing external deps fail instead of skip (default `false`) |
 | `BUILD_TAG` | CI build identifier (used to name the ephemeral namespace) |
 
+## Selecting which areas to run
+
+By default the full suite runs. To scope a run to specific auth methods or secret engines set
+`AREAS` (env var or Jenkins parameter) or pass `--areas` on the command line. The value is a
+comma-separated list of case-insensitive substrings matched against each test's `area` marker.
+
+```bash
+# Run only KV v2, Transit, and AppRole tests
+AREAS="kv,transit,approle" pytest
+
+# Equivalent via CLI flag
+pytest --areas="kv,transit,approle"
+
+# Exclude Kubernetes by listing only the engines/methods you want
+AREAS="kv,transit,approle,pki,ssh,ldap" pytest
+```
+
+- Empty / unset `AREAS` runs everything (no filtering).
+- A filter that matches no area at all causes a fast-fail `UsageError` that lists the available
+  areas — useful for catching typos before a long run.
+- Substring matching lets short tokens like `pki` match both `PKI (built-in)` and `PKI (Venafi)`.
+- In Jenkins, set the `AREAS` build parameter; the conftest reads it automatically as an env var.
+
 ## Air-gapped dependency setup (pre-provisioned agent)
 
 The CI agent has no internet. Dependencies are installed ONCE into a stable virtualenv on the
