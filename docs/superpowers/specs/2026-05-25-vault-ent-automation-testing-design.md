@@ -182,6 +182,13 @@ token unusable), **policy/ACL enforcement**, **credential lifecycle** (renew / r
 module is decorated so an unmet precondition yields `pytest.skip(reason=...)` with an explicit message
 (e.g. `"LDAP_URL not set"`), surfaced as SKIPPED in JUnit/HTML/console.
 
+### AREAS selection
+A `--areas` CLI option (and `AREAS` Jenkins parameter / env var) limits a run to tests whose `area`
+marker matches the supplied comma-separated substrings (case-insensitive). Empty means all areas.
+An all-miss filter fails fast with a `UsageError` listing available areas. This complements
+precondition auto-skip: a disabled auth method or secret engine can be excluded explicitly via
+`AREAS`, or it will simply skip automatically when its required dependency config is absent.
+
 ---
 
 ## 7. Reporting
@@ -214,9 +221,12 @@ TOTAL: 60 passed, 0 failed, 4 skipped
 
 ---
 
-## 8. Air-gapped Dependency Installation (offline wheelhouse)
+## 8. Air-gapped Dependency Installation (pre-provisioned agent)
 
-The CI agent has **no direct internet**; a **webhost with internet** stages wheels.
+The CI agent has **no direct internet**; a **webhost with internet** builds the wheel bundle. The
+chosen model is **pre-provisioned agent**: the agent is set up once (or on dependency change) rather
+than installing on every build. CI builds perform no installation — they activate a stable, pre-built
+venv.
 
 **Critical:** `cryptography` is a compiled wheel — it must match the agent's **OS + CPU arch + Python
 version**. Run the download on a host matching the agent, or force matching wheels with explicit flags.
@@ -227,31 +237,37 @@ python3 --version        # e.g. 3.11.x -> cp311
 uname -s -m              # e.g. Linux x86_64 -> manylinux2014_x86_64
 ```
 
-On the webhost (has internet):
+**Step 1 — Build wheelhouse on the webhost** (has internet):
 ```bash
 # requirements.txt: hvac / pytest / pytest-html / pyjwt[crypto] / cryptography
 pip download -r requirements.txt -d wheelhouse/                       # (a) matching host
 # (b) non-matching host: force the agent's platform
 pip download -r requirements.txt -d wheelhouse/ --only-binary=:all: \
     --implementation cp --python-version 311 --abi cp311 --platform manylinux2014_x86_64
-tar czf wheelhouse.tar.gz wheelhouse/                                 # publish on webhost HTTP path
+tar czf wheelhouse.tar.gz wheelhouse/                                 # transfer this bundle to the agent
 ```
 
-On the CI agent (Setup stage):
+**Step 2 — Provision the agent once** (re-run when `requirements.txt` changes, or bake into the agent image):
 ```bash
-curl -fSL http://<webhost>/wheelhouse.tar.gz -o wheelhouse.tar.gz && tar xzf wheelhouse.tar.gz
-python3 -m venv .venv && . .venv/bin/activate
-pip install --no-index --find-links=./wheelhouse -r requirements.txt
-python -c "import hvac, jwt, cryptography, pytest; print('deps OK')" && pytest --version
+# Transfer and extract wheelhouse.tar.gz onto the agent, then:
+WHEELHOUSE_DIR=/path/to/extracted/wheelhouse \
+VENV_DIR=/opt/vault-ent-suite/venv \
+bash scripts/provision-agent.sh
 ```
+`scripts/provision-agent.sh` wipes and recreates the venv at `VENV_DIR`, installs from the pinned
+`requirements.txt` using the local wheelhouse (no internet needed), and runs `pip check` to validate
+the environment.
 
-Variant (webhost serves `wheelhouse/` over HTTP, no tarball):
+**Step 3 — CI builds activate the pre-provisioned venv** (Jenkinsfile Setup stage — no install):
 ```bash
-pip install --no-index --find-links=http://<webhost>/wheelhouse/ --trusted-host <webhost> -r requirements.txt
+test -f "${VENV_DIR}/bin/activate" || { echo "ERROR: venv not found at ${VENV_DIR}"; exit 1; }
+. "${VENV_DIR}/bin/activate"
+python -c "import hvac, jwt, cryptography, pytest; print('deps OK')"
 ```
 
-Steps to build the wheelhouse are one-time prep (re-run when deps change); the agent-side steps become
-the Jenkinsfile **Setup** stage.
+The `VENV_DIR` Jenkins parameter (default `/opt/vault-ent-suite/venv`) points the pipeline at the
+provisioned venv. Builds fail fast in Setup if the venv is absent, making missing provisioning
+immediately visible.
 
 ---
 
@@ -261,9 +277,10 @@ the Jenkinsfile **Setup** stage.
 - **Triggers:** SCM webhook on **PR/merge** (validates the suite itself) **+** nightly **cron**
   (catches cluster drift/regressions).
 - **Parameters:** `VAULT_ADDR` override, `STRICT_MODE` (default lenient = skip-on-missing; can flip to
-  fail-on-missing), `AREAS` (subset selection).
-- **Stages:** Checkout → Setup (venv + offline install per §8) → Authenticate (scoped JWT login) →
-  Test (single pytest run) → Publish.
+  fail-on-missing), `VENV_DIR` (path to pre-provisioned venv on the agent, default
+  `/opt/vault-ent-suite/venv`), `AREAS` (comma-separated area filter; empty = all; see §6).
+- **Stages:** Checkout → Setup (verify pre-provisioned venv exists → activate → smoke-check imports;
+  no per-build install) → Authenticate (scoped JWT login) → Test (single pytest run) → Publish.
 - **`post { always { … } }`:** `junit 'reports/junit.xml'` + `archiveArtifacts 'reports/report.html'`
   (+ optional HTML Publisher). Build → **UNSTABLE** on test failures; **FAILED** only on infra/auth errors.
 

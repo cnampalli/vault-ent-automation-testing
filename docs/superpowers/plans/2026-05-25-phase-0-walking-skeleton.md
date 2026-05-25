@@ -967,7 +967,8 @@ pipeline {
   parameters {
     string(name: 'VAULT_ADDR_OVERRIDE', defaultValue: '', description: 'Override VAULT_ADDR')
     booleanParam(name: 'STRICT_MODE', defaultValue: false, description: 'Fail (not skip) on missing external deps')
-    string(name: 'WHEELHOUSE_URL', defaultValue: 'http://WEBHOST/wheelhouse.tar.gz', description: 'Air-gapped wheel bundle URL')
+    string(name: 'VENV_DIR', defaultValue: '/opt/vault-ent-suite/venv', description: 'Path to the pre-provisioned venv on the agent')
+    string(name: 'AREAS', defaultValue: '', description: 'Comma-separated area filter (case-insensitive substring); empty = all')
   }
 
   environment {
@@ -984,15 +985,13 @@ pipeline {
       steps { checkout scm }
     }
 
-    stage('Setup (offline deps)') {
+    stage('Setup') {
       steps {
         sh '''
           set -e
-          curl -fSL "$WHEELHOUSE_URL" -o wheelhouse.tar.gz
-          tar xzf wheelhouse.tar.gz
-          python3 -m venv .venv
-          . .venv/bin/activate
-          pip install --no-index --find-links=./wheelhouse -r requirements.txt
+          # Verify the pre-provisioned venv exists (provisioned once via scripts/provision-agent.sh)
+          test -f "${VENV_DIR}/bin/activate" || { echo "ERROR: venv not found at ${VENV_DIR}"; exit 1; }
+          . "${VENV_DIR}/bin/activate"
           python -c "import hvac, jwt, cryptography, pytest; print('deps OK')"
         '''
       }
@@ -1002,9 +1001,10 @@ pipeline {
       steps {
         sh '''
           set -e
-          . .venv/bin/activate
+          . "${VENV_DIR}/bin/activate"
           mkdir -p reports
           pytest \
+            ${AREAS:+--areas "$AREAS"} \
             --junitxml=reports/junit.xml \
             --html=reports/report.html --self-contained-html
         '''
@@ -1042,19 +1042,34 @@ Apply the §4 commands from the spec: create `automation` namespace, write the `
 enable the JWT auth mount inside `automation`, and create the `test-runner` role bound to the pipeline
 claim (open item A — substitute the real claim name/value).
 
-- [ ] **Step 2: Build the wheelhouse on the webhost**
+- [ ] **Step 2: Build the wheelhouse on the webhost and provision the agent**
 
-Run `scripts/build-wheelhouse.sh` (pass the agent's PYVER/ABI/PLATFORM if they differ from defaults)
-and publish `wheelhouse.tar.gz` on the webhost HTTP path. Set the pipeline `WHEELHOUSE_URL` accordingly.
+On the internet-connected webhost, run `scripts/build-wheelhouse.sh` (pass the agent's PYVER/ABI/PLATFORM
+if they differ from defaults) to produce `wheelhouse.tar.gz`. Transfer and extract the bundle onto the CI
+agent, then run the one-time provisioning step:
+
+```bash
+# On the CI agent (once, or whenever dependencies change):
+WHEELHOUSE_DIR=/path/to/extracted/wheelhouse \
+VENV_DIR=/opt/vault-ent-suite/venv \
+bash scripts/provision-agent.sh
+```
+
+This wipes and recreates the stable venv, installs from the pinned `requirements.txt` using the local
+wheelhouse, and runs `pip check`. Set the Jenkins `VENV_DIR` parameter to match `VENV_DIR` above
+(default `/opt/vault-ent-suite/venv`). The pipeline performs **no install** at build time.
 
 - [ ] **Step 3: Confirm the agent toolchain**
 
-On the CI agent: `python3 --version` (matches the wheelhouse) and `uname -s -m`.
+On the CI agent: `python3 --version` (matches the wheelhouse) and `uname -s -m`. Confirm
+`${VENV_DIR}/bin/activate` exists after provisioning.
 
 - [ ] **Step 4: Run the pipeline**
 
-Trigger the job. Expected build result: the **Test** stage runs, JUnit shows **1 passed** (the KV
-test) with **0 failed**, the HTML report is archived, and the console log shows the summary block:
+Trigger the job with `VENV_DIR` set to the provisioned venv path. Optionally set `AREAS=KV v2` to
+run only the walking-skeleton test. Expected build result: the **Setup** stage verifies the venv and
+smoke-checks imports; the **Test** stage runs, JUnit shows **1 passed** (the KV test) with
+**0 failed**, the HTML report is archived, and the console log shows the summary block:
 ```
 KV v2 ................ 1 passed
 --------------------------------------
@@ -1066,6 +1081,26 @@ TOTAL: 1 passed, 0 failed, 0 skipped
 Verify the `automation/ci-test-<build-id>` namespace no longer exists after the run
 (`vault namespace list -namespace=automation`). Report any deviation back; the suite's inputs are
 taken as truth.
+
+---
+
+---
+
+## Post-Plan Enhancements (landed after original task list)
+
+Two improvements were implemented beyond the original Phase 0 scope:
+
+1. **Pre-provisioned agent model** (`scripts/provision-agent.sh` + slimmed Jenkinsfile): instead of
+   fetching and installing the wheelhouse tarball on every build via a `WHEELHOUSE_URL` parameter,
+   the agent is provisioned once (or on dependency change) into a stable venv at `VENV_DIR`
+   (default `/opt/vault-ent-suite/venv`). The Jenkinsfile Setup stage now verifies the venv exists,
+   activates it, and smoke-checks imports — no per-build install.
+
+2. **AREAS selection** (`--areas` CLI option + `AREAS` Jenkins parameter): implemented in
+   `conftest.py` via `parse_areas`/`select_areas`. Passing a comma-separated list runs only tests
+   whose `area` marker matches (case-insensitive substring); empty means all. An all-miss filter
+   fails fast with a `UsageError` listing available areas. Reflects the `AREAS` parameter added to
+   the Jenkinsfile in Task 11.
 
 ---
 
