@@ -35,12 +35,18 @@ def parse_areas(raw: str | None) -> list[str]:
     return [a.strip().lower() for a in (raw or "").split(",") if a.strip()]
 
 
-def select_areas(area_by_id: dict, filters: list[str]):
+def select_areas(
+    area_by_id: dict[str, str | None],
+    filters: list[str],
+) -> tuple[list[str], list[str], list[str]]:
     """Given {nodeid: area} and lowercase filters, return (keep_ids, drop_ids, unmatched_filters).
 
     A test is kept if any filter is a case-insensitive substring of its area name.
     With no filters, everything is kept. unmatched_filters are filters that matched no area
     (likely typos), useful for warning the operator.
+
+    Note for contributors: matching is substring-based, so when adding a new area name,
+    check it does not unintentionally collide as a substring with an existing area name.
     """
     if not filters:
         return list(area_by_id.keys()), [], []
@@ -89,15 +95,15 @@ def pytest_collection_modifyitems(config, items):
         return
 
     keep_ids, _drop_ids, unmatched = select_areas(_AREA_BY_ID, filters)
+    if not keep_ids:
+        raise pytest.UsageError(
+            f"AREAS={raw!r} selected no tests (unrecognised filters: {unmatched}). "
+            f"Available areas: {sorted(set(_AREA_BY_ID.values()))}"
+        )
     if unmatched:
         warnings.warn(
             f"AREAS filter(s) matched no area and were ignored: {unmatched}",
             stacklevel=1,
-        )
-    if not keep_ids:
-        raise pytest.UsageError(
-            f"AREAS={raw!r} selected no tests. Available areas: "
-            f"{sorted(set(_AREA_BY_ID.values()))}"
         )
 
     keep = set(keep_ids)

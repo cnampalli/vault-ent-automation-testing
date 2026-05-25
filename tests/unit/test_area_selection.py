@@ -34,3 +34,10 @@ def test_select_areas_no_filters_keeps_all():
     keep, drop, unmatched = select_areas(amap, [])
     assert set(keep) == {"a", "b"}
     assert drop == []
+
+
+def test_select_areas_handles_none_area():
+    amap = {"t1": None, "t2": "KV v2"}
+    keep, drop, _ = select_areas(amap, ["kv"])
+    assert keep == ["t2"]
+    assert drop == ["t1"]
