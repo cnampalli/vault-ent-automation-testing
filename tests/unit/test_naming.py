@@ -23,3 +23,11 @@ def test_fallback_when_no_tag(monkeypatch):
 def test_reads_build_tag_env(monkeypatch):
     monkeypatch.setenv("BUILD_TAG", "build-42")
     assert ephemeral_namespace_name() == "ci-test-build-42"
+
+
+def test_all_special_characters_produces_valid_name():
+    """Tags with no alphanumeric characters must still yield a valid single-segment name."""
+    for tag in ["###", "@@@", "---", "   "]:
+        name = ephemeral_namespace_name(tag)
+        assert re.fullmatch(r"ci-test-[a-z0-9][a-z0-9-]*", name), \
+            f"Invalid name {name!r} from input {tag!r}"
