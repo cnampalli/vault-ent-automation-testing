@@ -36,3 +36,16 @@ def test_delete_runs_even_if_listing_fails():
     destroy_namespace(vc, parent="automation", child="ci-test-x")
 
     vc.hvac.sys.delete_namespace.assert_called_once_with(path="ci-test-x")
+
+
+def test_continues_after_individual_disable_failure():
+    vc = _client_with(
+        mounts={"kv-first/": {"type": "kv"}, "kv-second/": {"type": "kv"}},
+        auths={},
+    )
+    vc.hvac.sys.disable_secrets_engine.side_effect = [Exception("nope"), None]
+
+    destroy_namespace(vc, parent="automation", child="ci-test-x")
+
+    assert vc.hvac.sys.disable_secrets_engine.call_count == 2
+    vc.hvac.sys.delete_namespace.assert_called_once_with(path="ci-test-x")
