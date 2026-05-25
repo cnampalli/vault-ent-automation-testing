@@ -1,0 +1,7 @@
+.venv/
+reports/
+wheelhouse/
+wheelhouse.tar.gz
+__pycache__/
+*.pyc
+.pytest_cache/

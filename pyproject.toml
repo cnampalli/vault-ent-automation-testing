@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra -q"
+markers = [
+    "area(name): functional area this test belongs to (used for the console summary)",
+]
