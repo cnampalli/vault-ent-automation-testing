@@ -1,4 +1,5 @@
 import hvac
+from typing import Any
 from config.settings import Settings
 
 
@@ -26,10 +27,10 @@ class VaultClient:
         self._client.token = token
         return token
 
-    def create_namespace(self, path: str):
+    def create_namespace(self, path: str) -> Any:
         return self._client.sys.create_namespace(path=path)
 
-    def delete_namespace(self, path: str):
+    def delete_namespace(self, path: str) -> Any:
         return self._client.sys.delete_namespace(path=path)
 
 
