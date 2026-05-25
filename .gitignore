@@ -5,3 +5,7 @@ wheelhouse.tar.gz
 __pycache__/
 *.pyc
 .pytest_cache/
+.env
+.env.*
+.DS_Store
+*.egg-info/
