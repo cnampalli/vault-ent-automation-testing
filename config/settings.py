@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 def _require(name: str) -> str:
     val = os.environ.get(name)
-    if not val:
+    if not (val and val.strip()):
         raise RuntimeError(f"Required environment variable {name} is not set")
     return val
 

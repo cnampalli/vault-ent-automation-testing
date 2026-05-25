@@ -30,3 +30,26 @@ def test_missing_required_raises(monkeypatch):
     monkeypatch.setenv("CI_OIDC_TOKEN", "y")
     with pytest.raises(RuntimeError, match="VAULT_ADDR"):
         Settings.from_env()
+
+
+@pytest.mark.parametrize("val", ["1", "true", "yes", "on", "TRUE", "YES"])
+def test_strict_mode_truthy_variants(monkeypatch, val):
+    monkeypatch.setenv("VAULT_ADDR", "x")
+    monkeypatch.setenv("CI_OIDC_TOKEN", "y")
+    monkeypatch.setenv("STRICT_MODE", val)
+    assert Settings.from_env().strict_mode is True
+
+
+@pytest.mark.parametrize("missing,present", [("VAULT_ADDR", "CI_OIDC_TOKEN"), ("CI_OIDC_TOKEN", "VAULT_ADDR")])
+def test_each_required_var_raises_with_its_name(monkeypatch, missing, present):
+    monkeypatch.delenv(missing, raising=False)
+    monkeypatch.setenv(present, "value")
+    with pytest.raises(RuntimeError, match=missing):
+        Settings.from_env()
+
+
+def test_whitespace_required_var_raises(monkeypatch):
+    monkeypatch.setenv("VAULT_ADDR", "   ")
+    monkeypatch.setenv("CI_OIDC_TOKEN", "y")
+    with pytest.raises(RuntimeError, match="VAULT_ADDR"):
+        Settings.from_env()
