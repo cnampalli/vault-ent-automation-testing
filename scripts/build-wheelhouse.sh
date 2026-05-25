@@ -13,8 +13,8 @@ rm -rf "$HERE/wheelhouse" && mkdir -p "$HERE/wheelhouse"
 
 # Try a plain download first (works when this host matches the agent platform);
 # fall back to forcing the agent's platform for the compiled 'cryptography' wheel.
-if ! pip download -r "$HERE/requirements.txt" -d "$HERE/wheelhouse"; then
-  pip download -r "$HERE/requirements.txt" -d "$HERE/wheelhouse" \
+if ! python3 -m pip download -r "$HERE/requirements.txt" -d "$HERE/wheelhouse"; then
+  python3 -m pip download -r "$HERE/requirements.txt" -d "$HERE/wheelhouse" \
     --only-binary=:all: --implementation cp \
     --python-version "$PYVER" --abi "$ABI" --platform "$PLATFORM"
 fi
