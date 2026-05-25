@@ -14,7 +14,7 @@ def test_kv_v2_write_then_read(ns_client):
         path="smoke", secret={"hello": "world"}, mount_point=mount
     )
     read = ns_client.hvac.secrets.kv.v2.read_secret_version(
-        path="smoke", mount_point=mount
+        path="smoke", mount_point=mount, raise_on_deleted_version=True
     )
 
     assert read["data"]["data"] == {"hello": "world"}
