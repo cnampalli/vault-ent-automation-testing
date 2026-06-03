@@ -43,10 +43,12 @@ pipeline {
           : "${CI_OIDC_TOKEN:?CI_OIDC_TOKEN must be injected by the platform OIDC credential step}"
           if [ ! -d "$VENV_DIR" ]; then
             echo "Agent not provisioned: virtualenv not found at $VENV_DIR." >&2
-            echo "Provision it once with scripts/provision-agent.sh (see README), or bake it into the agent image." >&2
+            echo "Provision it once (offline) with: bash scripts/provision-agent.sh" >&2
+            echo "It vendors CPython 3.11 + wheels from vendor/ -- no network needed." >&2
             exit 1
           fi
           . "$VENV_DIR/bin/activate"
+          python3 -c "import sys; assert sys.version_info[:2]==(3,11), sys.version; print('python', sys.version.split()[0])"
           python3 -c "import hvac, jwt, cryptography, pytest; print('deps OK')"
         '''
       }

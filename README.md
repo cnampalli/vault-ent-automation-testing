@@ -41,19 +41,38 @@ AREAS="kv,transit,approle,pki,ssh,ldap" pytest
 - Substring matching lets short tokens like `pki` match both `PKI (built-in)` and `PKI (Venafi)`.
 - In Jenkins, set the `AREAS` build parameter; the conftest reads it automatically as an env var.
 
-## Air-gapped dependency setup (pre-provisioned agent)
+## Air-gapped dependency setup (vendored runtime + wheels)
 
-The CI agent has no internet. Dependencies are installed ONCE into a stable virtualenv on the
-agent, not on every build.
+The CI agent has no internet and cannot install or download anything. The Python runtime and all
+dependencies are **vendored into this repo** under `vendor/` and installed offline.
 
-1. **On the webhost (has internet):** build the wheel bundle.
-   `./scripts/build-wheelhouse.sh [PYVER] [ABI] [PLATFORM]` -> produces `wheelhouse.tar.gz`.
-2. **Transfer + extract** `wheelhouse.tar.gz` onto the agent (or the agent image build).
-3. **On the agent:** provision the venv from the pinned `requirements.txt`.
-   `WHEELHOUSE_DIR=./wheelhouse VENV_DIR=/opt/vault-ent-suite/venv bash scripts/provision-agent.sh`
-   Re-run whenever `requirements.txt` changes. For reproducibility, prefer baking this into the
-   agent's base image rather than hand-running it.
-4. **CI builds** activate `$VENV_DIR` (Jenkinsfile `VENV_DIR` parameter, default
-   `/opt/vault-ent-suite/venv`), verify imports, and run the tests. No per-build install or network.
+**Refreshing the vendored artifacts** (on any machine WITH internet — the only networked step):
 
-See the design doc section 8 for the rationale.
+```bash
+bash scripts/build-wheelhouse.sh
+```
+
+This downloads + checksum-verifies the pinned standalone CPython 3.11 (`vendor/python/`), downloads
+the dependency + tooling wheels for the agent target `cp311 / manylinux2014_x86_64`
+(`vendor/wheelhouse/`), regenerates the hash-pinned `requirements.lock`, and **fails if any pin has
+a known OSV advisory**. Commit `vendor/`, `requirements.txt`, and `requirements.lock`.
+
+**Provisioning the agent** (offline — downloads nothing, ignores the agent's system Python):
+
+```bash
+bash scripts/provision-agent.sh
+```
+
+This verifies the interpreter SHA256, extracts it to `/opt/vault-ent-suite/python`, builds a venv at
+`/opt/vault-ent-suite/venv`, and installs the wheels with `pip install --require-hashes --no-index`.
+Re-run whenever `vendor/` or `requirements.lock` changes; for reproducibility, prefer baking it into
+the agent image. Override paths via `VENV_DIR` / `PY_BASE`.
+
+**CI builds** activate `$VENV_DIR` (Jenkinsfile `VENV_DIR` parameter, default
+`/opt/vault-ent-suite/venv`), assert Python 3.11 + import the deps, and run the tests — no per-build
+install or network.
+
+> Target is pinned to glibc-2.28 x86_64 / CPython 3.11. A different agent arch or libc requires
+> re-vendoring with the matching `python-build-standalone` asset and wheel platform tag.
+
+See `docs/superpowers/specs/2026-06-02-vendored-python-airgapped-provisioning-design.md` for rationale.
