@@ -1,29 +1,61 @@
 #!/usr/bin/env bash
-# Run on the INTERNET-CONNECTED webhost. Produces wheelhouse.tar.gz to publish for the air-gapped agent.
-#
-# Wheels are downloaded for the AGENT's platform (not this host's), so this works whether or not the
-# webhost matches the agent. Pass the agent's values if they differ from the CloudBees Linux / CPython
-# 3.11 / x86_64 defaults below. Determine them on the agent with `python3 --version` and `uname -m`.
-# If pip reports "no matching distribution" for a package, the platform tag is wrong for it -- adjust
-# PLATFORM (e.g. manylinux_2_28_x86_64) or ABI to match the agent.
-#
-# Usage: ./scripts/build-wheelhouse.sh [PYVER] [ABI] [PLATFORM]
+# Runs on a CONNECTED host (developer machine / webhost) -- the ONLY step that needs internet.
+# Refreshes the vendored air-gapped artifacts committed to the repo:
+#   vendor/python/   : the pinned standalone CPython interpreter + upstream SHA256SUMS
+#   vendor/wheelhouse: dependency + tooling wheels for the agent target (cp311/manylinux2014_x86_64)
+#   requirements.lock: fully-resolved, hash-pinned install input, OSV-scanned clean
+# The air-gapped agent then provisions offline via scripts/provision-agent.sh (downloads nothing).
 set -euo pipefail
 
-PYVER="${1:-3.11}"
-ABI="${2:-cp311}"
-PLATFORM="${3:-manylinux2014_x86_64}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
-echo "Downloading wheels for target: python=$PYVER abi=$ABI platform=$PLATFORM"
-rm -rf "$HERE/wheelhouse" && mkdir -p "$HERE/wheelhouse"
+# --- Pinned interpreter (astral-sh/python-build-standalone) --------------------------------
+PBS_TAG="20260510"
+PBS_ASSET="cpython-3.11.15+20260510-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+PBS_SHA256="171dffd8c0f66e8a0725364a7428015b22fc18dd298b24f541392e17dd0e561f"
+PBS_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_TAG}/cpython-3.11.15%2B20260510-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+SUMS_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_TAG}/SHA256SUMS"
 
-# Always target the agent platform explicitly. --only-binary=:all: prevents host-specific sdists
-# from sneaking in. This fails LOUDLY on the webhost if a wheel is unavailable, instead of silently
-# bundling wrong-platform wheels that would explode at install time on the air-gapped agent.
-python3 -m pip download -r "$HERE/requirements.txt" -d "$HERE/wheelhouse" \
+# --- Wheel target (MUST match the air-gapped agent) ---------------------------------------
+PYVER="3.11"; ABI="cp311"; PLATFORM="manylinux2014_x86_64"
+PIP_PIN="26.1.2"; SETUPTOOLS_PIN="82.0.1"
+
+PY_DIR="$HERE/vendor/python"
+WH_DIR="$HERE/vendor/wheelhouse"
+LOCK="$HERE/requirements.lock"
+
+mkdir -p "$PY_DIR" "$WH_DIR"
+
+echo "==> Fetching interpreter $PBS_ASSET"
+curl -fSL "$PBS_URL" -o "$PY_DIR/$PBS_ASSET"
+curl -fSL "$SUMS_URL" -o "$PY_DIR/SHA256SUMS"
+
+echo "==> Verifying interpreter checksum"
+python3 - "$PY_DIR/$PBS_ASSET" "$PBS_SHA256" <<'PY'
+import hashlib, sys
+path, expected = sys.argv[1], sys.argv[2]
+h = hashlib.sha256()
+with open(path, "rb") as f:
+    for chunk in iter(lambda: f.read(1 << 20), b""):
+        h.update(chunk)
+got = h.hexdigest()
+if got != expected:
+    sys.exit(f"CHECKSUM MISMATCH: {got} != {expected}")
+print("checksum OK")
+PY
+
+echo "==> Downloading wheels for cp${PYVER}/${PLATFORM}"
+rm -f "$WH_DIR"/*.whl
+python3 -m pip download -r "$HERE/requirements.txt" -d "$WH_DIR" \
   --only-binary=:all: --implementation cp \
   --python-version "$PYVER" --abi "$ABI" --platform "$PLATFORM"
+# Tooling wheels for the offline pip/setuptools upgrade (pure-python; platform-agnostic).
+python3 -m pip download "pip==$PIP_PIN" "setuptools==$SETUPTOOLS_PIN" -d "$WH_DIR" --only-binary=:all:
 
-tar czf "$HERE/wheelhouse.tar.gz" -C "$HERE" wheelhouse
-echo "Created $HERE/wheelhouse.tar.gz -- publish this on the webhost HTTP path."
+echo "==> Generating hash-locked $LOCK"
+python3 "$HERE/scripts/_gen_lock.py" "$WH_DIR" > "$LOCK"
+
+echo "==> CVE scan (OSV) over $LOCK"
+python3 "$HERE/scripts/_osv_audit.py" "$LOCK"
+
+echo "==> Done. Review and commit: vendor/ requirements.txt requirements.lock"
