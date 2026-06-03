@@ -1,33 +1,49 @@
 #!/usr/bin/env bash
-# Run ONCE on the air-gapped CI agent (or bake into the agent image) to install the suite's
-# pinned dependencies into a stable virtualenv. Re-run whenever requirements.txt changes.
-#
-# Prereq: the wheelhouse built by scripts/build-wheelhouse.sh on the webhost has been transferred
-# and extracted on this agent (so a directory of .whl files exists).
+# Runs ONCE on the air-gapped CI agent (or bake into the agent image). Builds a venv from the
+# VENDORED standalone interpreter and installs the VENDORED, hash-locked wheels OFFLINE.
+# Downloads nothing and does not use the agent's system Python. Re-run when vendor/ or
+# requirements.lock changes.
 #
 # Inputs (env vars):
-#   WHEELHOUSE_DIR : directory containing the downloaded wheels (default: ./wheelhouse)
-#   VENV_DIR       : where to create the venv (default: /opt/vault-ent-suite/venv)
-# Usage:
-#   WHEELHOUSE_DIR=./wheelhouse VENV_DIR=/opt/vault-ent-suite/venv ./scripts/provision-agent.sh
+#   VENV_DIR : where to create the venv      (default: /opt/vault-ent-suite/venv)
+#   PY_BASE  : where to extract the runtime   (default: /opt/vault-ent-suite/python)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-WHEELHOUSE_DIR="${WHEELHOUSE_DIR:-$HERE/wheelhouse}"
 VENV_DIR="${VENV_DIR:-/opt/vault-ent-suite/venv}"
+PY_BASE="${PY_BASE:-/opt/vault-ent-suite/python}"
 
-if [ ! -d "$WHEELHOUSE_DIR" ]; then
-  echo "ERROR: wheelhouse directory not found: $WHEELHOUSE_DIR" >&2
-  echo "Build it on the webhost (scripts/build-wheelhouse.sh), transfer + extract it here, then re-run." >&2
-  exit 1
-fi
+PBS_ASSET="cpython-3.11.15+20260510-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+PBS_SHA256="171dffd8c0f66e8a0725364a7428015b22fc18dd298b24f541392e17dd0e561f"
+TARBALL="$HERE/vendor/python/$PBS_ASSET"
+WH_DIR="$HERE/vendor/wheelhouse"
+LOCK="$HERE/requirements.lock"
 
-echo "Provisioning virtualenv at $VENV_DIR from wheelhouse $WHEELHOUSE_DIR"
+[ -f "$TARBALL" ] || { echo "ERROR: vendored interpreter missing: $TARBALL" >&2; exit 1; }
+[ -d "$WH_DIR" ]  || { echo "ERROR: vendored wheelhouse missing: $WH_DIR" >&2; exit 1; }
+[ -f "$LOCK" ]    || { echo "ERROR: lockfile missing: $LOCK" >&2; exit 1; }
+
+echo "==> Verifying interpreter checksum"
+echo "${PBS_SHA256}  ${TARBALL}" | sha256sum -c -
+
+echo "==> Extracting interpreter to $PY_BASE"
+rm -rf "$PY_BASE"; mkdir -p "$PY_BASE"
+tar -xzf "$TARBALL" -C "$PY_BASE"   # creates "$PY_BASE/python/..."
+PYBIN="$PY_BASE/python/bin/python3"
+[ -x "$PYBIN" ] || { echo "ERROR: interpreter not found after extract: $PYBIN" >&2; exit 1; }
+
+echo "==> Creating venv at $VENV_DIR (from vendored interpreter)"
 rm -rf "$VENV_DIR"
-python3 -m venv "$VENV_DIR"
+"$PYBIN" -m venv "$VENV_DIR"
 # shellcheck source=/dev/null
 . "$VENV_DIR/bin/activate"
-python3 -m pip install --no-index --find-links="$WHEELHOUSE_DIR" -r "$HERE/requirements.txt"
+
+echo "==> Upgrading pip/setuptools offline"
+python3 -m pip install --no-index --find-links="$WH_DIR" --upgrade pip setuptools
+
+echo "==> Installing dependencies (hash-enforced, offline)"
+python3 -m pip install --no-index --find-links="$WH_DIR" --require-hashes -r "$LOCK"
+
 python3 -m pip check
 python3 -c "import hvac, jwt, cryptography, pytest; print('agent provisioned OK')"
 echo "Done. Configure CI builds with VENV_DIR=$VENV_DIR"
