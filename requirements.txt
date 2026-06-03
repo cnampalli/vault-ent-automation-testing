@@ -1,5 +1,5 @@
 hvac==2.4.0
-pytest==8.3.4
-pytest-html==4.1.1
-PyJWT[crypto]==2.10.1
-cryptography==44.0.0
+pytest==9.0.3
+pytest-html==4.2.0
+PyJWT[crypto]==2.13.0
+cryptography==48.0.0
