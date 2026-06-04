@@ -11,7 +11,7 @@ See `docs/superpowers/specs/2026-05-25-vault-ent-automation-testing-design.md`.
 | Var | Meaning |
 |---|---|
 | `VAULT_ADDR` | Cluster URL |
-| `CI_OIDC_TOKEN` | The CloudBees CI OIDC/JWT token presented at login |
+| `CI_OIDC_TOKEN` | Vault login JWT. In CI it is bound automatically from the CloudBees OpenID Connect provider credential `oidc-jwt-provider` (audience = `VAULT_ADDR`); the Vault `test-runner` role must set `bound_audiences=$VAULT_ADDR` to accept it |
 | `VAULT_PARENT_NAMESPACE` | Delegated parent namespace (default `automation`) |
 | `VAULT_JWT_MOUNT` | JWT auth mount path inside the parent ns (default `jwt`) |
 | `VAULT_JWT_ROLE` | Scoped role name (default `test-runner`) |
@@ -57,20 +57,24 @@ the dependency + tooling wheels for the agent target `cp311 / manylinux2014_x86_
 (`vendor/wheelhouse/`), regenerates the hash-pinned `requirements.lock`, and **fails if any pin has
 a known OSV advisory**. Commit `vendor/`, `requirements.txt`, and `requirements.lock`.
 
-**Provisioning the agent** (offline — downloads nothing, ignores the agent's system Python):
+**Provisioning the agent** is automatic: the pipeline's Setup stage runs `scripts/provision-agent.sh`
+on the first build of an agent (when the venv is missing or its deps don't import) and skips it on
+every build after. No manual step is required. It runs offline — downloads nothing and ignores the
+agent's system Python:
 
 ```bash
+# What the pipeline runs for you (or run by hand to pre-bake an agent image):
 bash scripts/provision-agent.sh
 ```
 
-This verifies the interpreter SHA256, extracts it to `/opt/vault-ent-suite/python`, builds a venv at
-`/opt/vault-ent-suite/venv`, and installs the wheels with `pip install --require-hashes --no-index`.
-Re-run whenever `vendor/` or `requirements.lock` changes; for reproducibility, prefer baking it into
-the agent image. Override paths via `VENV_DIR` / `PY_BASE`.
+This verifies the interpreter SHA256, extracts the runtime to `PY_BASE`, builds a venv at `VENV_DIR`,
+and installs the wheels with `pip install --require-hashes --no-index`. Defaults live under the
+agent-writable `/var/lib/jenkins/vault-ent-suite/` (`venv/` and `python/`); override via the
+`VENV_DIR` / `PY_BASE` env vars or the matching Jenkins parameters. Both must be a **stable** path
+(not the ephemeral workspace) since the venv references `PY_BASE`.
 
-**CI builds** activate `$VENV_DIR` (Jenkinsfile `VENV_DIR` parameter, default
-`/opt/vault-ent-suite/venv`), assert Python 3.11 + import the deps, and run the tests — no per-build
-install or network.
+**CI builds** activate `$VENV_DIR`, assert Python 3.11, import the deps, and run the tests — no
+per-build install or network (after the one-time first-build provisioning per agent).
 
 > Target is pinned to glibc-2.28 x86_64 / CPython 3.11. A different agent arch or libc requires
 > re-vendoring with the matching `python-build-standalone` asset and wheel platform tag.
