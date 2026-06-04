@@ -67,7 +67,29 @@ def select_areas(
 # NOTE: the module-level state below is NOT pytest-xdist safe (each worker would
 # get its own copy). Single-process runs only; revisit if xdist is ever added.
 _AREA_BY_ID = {}
-_RECORDS = []
+_OUTCOMES = {}  # nodeid -> (outcome, reason); one row per test, worst phase wins
+
+_SEVERITY = {"passed": 0, "skipped": 1, "failed": 2}
+
+
+def merge_outcome(old, new):
+    """Pick the more severe of two (outcome, reason) tuples; on a tie keep the first.
+
+    Severity order: failed > skipped > passed. This collapses a test's setup/call/teardown
+    phases into a single row, so a setup or teardown error (e.g. Vault auth/TLS failure, or a
+    namespace cleanup failure) surfaces as a failure instead of being dropped.
+    """
+    if old is None or _SEVERITY[new[0]] > _SEVERITY[old[0]]:
+        return new
+    return old
+
+
+def collected_records():
+    """Flatten the per-test outcomes into (area, outcome, reason) records for aggregation."""
+    return [
+        (_AREA_BY_ID.get(nodeid, "uncategorized"), outcome, reason)
+        for nodeid, (outcome, reason) in _OUTCOMES.items()
+    ]
 
 
 def pytest_addoption(parser):
@@ -114,18 +136,25 @@ def pytest_collection_modifyitems(config, items):
 
 
 def pytest_runtest_logreport(report):
-    # record once per test: prefer the 'call' phase; capture setup-time skips too
-    if report.when == "call" or (report.when == "setup" and report.skipped):
-        area = _AREA_BY_ID.get(report.nodeid, "uncategorized")
+    # Collapse every phase into one row per test. Crucially, setup/teardown FAILURES (errors in
+    # fixtures -- Vault auth, TLS, namespace cleanup) are captured here; the old code only looked
+    # at the 'call' phase and so silently dropped them from the summary.
+    if report.when == "call":
         outcome = "passed" if report.passed else "failed" if report.failed else "skipped"
-        reason = ""
-        if report.skipped and isinstance(report.longrepr, tuple) and len(report.longrepr) == 3:
-            reason = report.longrepr[2]
-        _RECORDS.append((area, outcome, reason))
+    elif report.skipped:            # setup-time skip
+        outcome = "skipped"
+    elif report.failed:             # setup or teardown error
+        outcome = "failed"
+    else:
+        return                      # setup/teardown that passed -> nothing to record
+    reason = ""
+    if report.skipped and isinstance(report.longrepr, tuple) and len(report.longrepr) == 3:
+        reason = report.longrepr[2]
+    _OUTCOMES[report.nodeid] = merge_outcome(_OUTCOMES.get(report.nodeid), (outcome, reason))
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    agg = aggregate_outcomes(_RECORDS)
+    agg = aggregate_outcomes(collected_records())
     terminalreporter.write_line("")
     terminalreporter.write_line(format_summary(agg))
 
