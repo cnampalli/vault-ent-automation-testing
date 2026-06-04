@@ -16,6 +16,10 @@ pipeline {
     string(name: 'VENV_DIR', defaultValue: '/var/lib/jenkins/vault-ent-suite/venv', description: 'Stable, agent-writable path for the provisioned virtualenv (auto-created on first build)')
     string(name: 'PY_BASE', defaultValue: '/var/lib/jenkins/vault-ent-suite/python', description: 'Stable, agent-writable path where the vendored CPython runtime is extracted (the venv references it)')
     string(name: 'AREAS', defaultValue: '', description: 'Comma-separated area filter (e.g. "kv,transit,approle"); empty = run all available')
+    string(name: 'VAULT_JWT_MOUNT', defaultValue: 'jwt', description: 'JWT auth mount path inside the parent namespace (e.g. "jwt-jenkins-ci")')
+    string(name: 'VAULT_JWT_ROLE', defaultValue: 'test-runner', description: 'Vault JWT auth role name')
+    booleanParam(name: 'VAULT_SKIP_VERIFY', defaultValue: false, description: 'INSECURE: skip Vault TLS verification. Prefer VAULT_CACERT for self-signed/internal CAs')
+    string(name: 'VAULT_CACERT', defaultValue: '', description: 'Path on the agent to a CA/server cert bundle to trust (for self-signed or internal-CA Vault TLS)')
   }
 
   environment {
@@ -27,8 +31,12 @@ pipeline {
     PY_BASE                = "${params.PY_BASE}"
     AREAS                  = "${params.AREAS}"
     VAULT_PARENT_NAMESPACE = 'automation'
-    VAULT_JWT_MOUNT        = 'jwt'
-    VAULT_JWT_ROLE         = 'test-runner'
+    VAULT_JWT_MOUNT        = "${params.VAULT_JWT_MOUNT}"
+    VAULT_JWT_ROLE         = "${params.VAULT_JWT_ROLE}"
+    // TLS trust for a self-signed / internal-CA Vault. Empty CACERT + skip=false => verify with
+    // the system trust store (secure default; will fail closed against an untrusted cert).
+    VAULT_SKIP_VERIFY      = "${params.VAULT_SKIP_VERIFY}"
+    VAULT_CACERT           = "${params.VAULT_CACERT}"
     // Mints a short-lived JWT via the CloudBees OpenID Connect provider credential
     // (id 'oidc-jwt-provider', global scope). Its audience is set to VAULT_ADDR, so the Vault
     // JWT auth role 'test-runner' must set bound_audiences=$VAULT_ADDR to accept the token.
