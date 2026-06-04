@@ -15,6 +15,8 @@ See `docs/superpowers/specs/2026-05-25-vault-ent-automation-testing-design.md`.
 | `VAULT_PARENT_NAMESPACE` | Delegated parent namespace (default `automation`) |
 | `VAULT_JWT_MOUNT` | JWT auth mount path inside the parent ns (default `jwt`) |
 | `VAULT_JWT_ROLE` | Scoped role name (default `test-runner`) |
+| `VAULT_CACERT` | Path to a CA/server cert bundle to trust for Vault TLS (self-signed / internal CA). Preferred over skipping verification |
+| `VAULT_SKIP_VERIFY` | `true` => **insecurely** skip Vault TLS verification (default `false`). Use `VAULT_CACERT` instead where possible |
 | `STRICT_MODE` | `true` => missing external deps fail instead of skip (default `false`) |
 | `BUILD_TAG` | CI build identifier (used to name the ephemeral namespace) |
 

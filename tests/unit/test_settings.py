@@ -5,8 +5,11 @@ from config.settings import Settings
 def test_from_env_parses_required_and_defaults(monkeypatch):
     monkeypatch.setenv("VAULT_ADDR", "https://vault.example:8200")
     monkeypatch.setenv("CI_OIDC_TOKEN", "tok123")
-    monkeypatch.delenv("VAULT_PARENT_NAMESPACE", raising=False)
-    monkeypatch.delenv("STRICT_MODE", raising=False)
+    # Clear every optional var this test asserts a default for, so an ambient CI value
+    # (e.g. VAULT_JWT_MOUNT=jwt-jenkins-ci on the agent) can't leak in and fail the assertion.
+    for var in ("VAULT_PARENT_NAMESPACE", "STRICT_MODE", "VAULT_JWT_MOUNT",
+                "VAULT_JWT_ROLE", "VAULT_CACERT", "VAULT_SKIP_VERIFY"):
+        monkeypatch.delenv(var, raising=False)
 
     s = Settings.from_env()
 
@@ -16,6 +19,32 @@ def test_from_env_parses_required_and_defaults(monkeypatch):
     assert s.jwt_mount == "jwt"                  # default
     assert s.jwt_role == "test-runner"           # default
     assert s.strict_mode is False                # default
+    assert s.vault_cacert is None                # default
+    assert s.vault_skip_verify is False          # default
+    assert s.tls_verify() is True                # default: verify with system trust store
+
+
+def test_from_env_tls_options(monkeypatch):
+    monkeypatch.setenv("VAULT_ADDR", "x")
+    monkeypatch.setenv("CI_OIDC_TOKEN", "y")
+    monkeypatch.setenv("VAULT_CACERT", "/etc/ssl/vault-ca.pem")
+    monkeypatch.setenv("VAULT_SKIP_VERIFY", "true")
+    s = Settings.from_env()
+    assert s.vault_cacert == "/etc/ssl/vault-ca.pem"
+    assert s.vault_skip_verify is True
+
+
+@pytest.mark.parametrize("cacert,skip,expected", [
+    (None, False, True),                                       # default: verify
+    (None, True, False),                                       # explicit skip
+    ("/etc/ssl/vault-ca.pem", False, "/etc/ssl/vault-ca.pem"),  # CA bundle path
+    ("/etc/ssl/vault-ca.pem", True, "/etc/ssl/vault-ca.pem"),   # CA bundle wins over skip
+])
+def test_tls_verify_resolution(cacert, skip, expected):
+    s = Settings(vault_addr="x", ci_oidc_token="y", parent_namespace="automation",
+                 jwt_mount="jwt", jwt_role="test-runner", strict_mode=False,
+                 vault_cacert=cacert, vault_skip_verify=skip)
+    assert s.tls_verify() == expected
 
 
 def test_strict_mode_truthy(monkeypatch):

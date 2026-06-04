@@ -6,8 +6,9 @@ from config.settings import Settings
 class VaultClient:
     """Thin, namespace-aware wrapper over hvac.Client."""
 
-    def __init__(self, url: str, namespace: str | None = None, token: str | None = None):
-        self._client = hvac.Client(url=url, namespace=namespace, token=token)
+    def __init__(self, url: str, namespace: str | None = None, token: str | None = None,
+                 verify: bool | str = True):
+        self._client = hvac.Client(url=url, namespace=namespace, token=token, verify=verify)
 
     @property
     def hvac(self) -> hvac.Client:
@@ -35,6 +36,7 @@ class VaultClient:
 
 
 def authenticate(settings: Settings) -> VaultClient:
-    client = VaultClient(url=settings.vault_addr, namespace=settings.parent_namespace, token=None)
+    client = VaultClient(url=settings.vault_addr, namespace=settings.parent_namespace,
+                         token=None, verify=settings.tls_verify())
     client.jwt_login(role=settings.jwt_role, jwt=settings.ci_oidc_token, mount=settings.jwt_mount)
     return client
