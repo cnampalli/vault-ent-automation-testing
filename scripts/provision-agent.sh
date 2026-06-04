@@ -5,13 +5,15 @@
 # requirements.lock changes.
 #
 # Inputs (env vars):
-#   VENV_DIR : where to create the venv      (default: /opt/vault-ent-suite/venv)
-#   PY_BASE  : where to extract the runtime   (default: /opt/vault-ent-suite/python)
+#   VENV_DIR : where to create the venv      (default: /var/lib/jenkins/vault-ent-suite/venv)
+#   PY_BASE  : where to extract the runtime   (default: /var/lib/jenkins/vault-ent-suite/python)
+# Both must be on a stable path writable by the agent user (the venv references PY_BASE), NOT the
+# ephemeral build workspace.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-VENV_DIR="${VENV_DIR:-/opt/vault-ent-suite/venv}"
-PY_BASE="${PY_BASE:-/opt/vault-ent-suite/python}"
+VENV_DIR="${VENV_DIR:-/var/lib/jenkins/vault-ent-suite/venv}"
+PY_BASE="${PY_BASE:-/var/lib/jenkins/vault-ent-suite/python}"
 
 PBS_ASSET="cpython-3.11.15+20260510-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 PBS_SHA256="171dffd8c0f66e8a0725364a7428015b22fc18dd298b24f541392e17dd0e561f"
@@ -33,7 +35,7 @@ PYBIN="$PY_BASE/python/bin/python3"
 [ -x "$PYBIN" ] || { echo "ERROR: interpreter not found after extract: $PYBIN" >&2; exit 1; }
 
 echo "==> Creating venv at $VENV_DIR (from vendored interpreter)"
-rm -rf "$VENV_DIR"
+rm -rf "$VENV_DIR"; mkdir -p "$(dirname "$VENV_DIR")"
 "$PYBIN" -m venv "$VENV_DIR"
 # shellcheck source=/dev/null
 . "$VENV_DIR/bin/activate"
