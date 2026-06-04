@@ -7,6 +7,10 @@ and tears it down.
 ## Design
 See `docs/superpowers/specs/2026-05-25-vault-ent-automation-testing-design.md`.
 
+## Vault-side setup (admin, one-time)
+Before the suite can run against a cluster, an admin must create the `automation` namespace, JWT
+auth, the `test-runner` role, and its policy. Full copy-paste runbook: [docs/vault-setup.md](docs/vault-setup.md).
+
 ## Required environment variables
 | Var | Meaning |
 |---|---|
