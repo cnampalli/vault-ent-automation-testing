@@ -27,7 +27,10 @@ pipeline {
     VAULT_PARENT_NAMESPACE = 'automation'
     VAULT_JWT_MOUNT        = 'jwt'
     VAULT_JWT_ROLE         = 'test-runner'
-    // CI_OIDC_TOKEN is injected by the platform's OIDC step/credential (open item in spec section 3)
+    // Mints a short-lived JWT via the CloudBees OpenID Connect provider credential
+    // (id 'oidc-jwt-provider', global scope). Its audience is set to VAULT_ADDR, so the Vault
+    // JWT auth role 'test-runner' must set bound_audiences=$VAULT_ADDR to accept the token.
+    CI_OIDC_TOKEN          = credentials('oidc-jwt-provider')
   }
 
   stages {
@@ -40,7 +43,7 @@ pipeline {
         sh '''
           set -e
           : "${VAULT_ADDR:?VAULT_ADDR must be set -- pass the VAULT_ADDR_OVERRIDE parameter or set it in the node environment}"
-          : "${CI_OIDC_TOKEN:?CI_OIDC_TOKEN must be injected by the platform OIDC credential step}"
+          : "${CI_OIDC_TOKEN:?CI_OIDC_TOKEN empty -- check the 'oidc-jwt-provider' credential binding}"
           if [ ! -d "$VENV_DIR" ]; then
             echo "Agent not provisioned: virtualenv not found at $VENV_DIR." >&2
             echo "Provision it once (offline) with: bash scripts/provision-agent.sh" >&2

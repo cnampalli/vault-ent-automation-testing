@@ -11,7 +11,7 @@ See `docs/superpowers/specs/2026-05-25-vault-ent-automation-testing-design.md`.
 | Var | Meaning |
 |---|---|
 | `VAULT_ADDR` | Cluster URL |
-| `CI_OIDC_TOKEN` | The CloudBees CI OIDC/JWT token presented at login |
+| `CI_OIDC_TOKEN` | Vault login JWT. In CI it is bound automatically from the CloudBees OpenID Connect provider credential `oidc-jwt-provider` (audience = `VAULT_ADDR`); the Vault `test-runner` role must set `bound_audiences=$VAULT_ADDR` to accept it |
 | `VAULT_PARENT_NAMESPACE` | Delegated parent namespace (default `automation`) |
 | `VAULT_JWT_MOUNT` | JWT auth mount path inside the parent ns (default `jwt`) |
 | `VAULT_JWT_ROLE` | Scoped role name (default `test-runner`) |
