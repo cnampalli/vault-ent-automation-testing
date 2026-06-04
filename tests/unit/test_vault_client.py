@@ -35,6 +35,27 @@ def test_authenticate_factory(mock_client_cls):
                  parent_namespace="automation", jwt_mount="jwt",
                  jwt_role="test-runner", strict_mode=False)
     vc = authenticate(s)
-    mock_client_cls.assert_called_once_with(url="https://v:8200", namespace="automation", token=None)
+    mock_client_cls.assert_called_once_with(
+        url="https://v:8200", namespace="automation", token=None, verify=True)
     inner.auth.jwt.jwt_login.assert_called_once_with(role="test-runner", jwt="ci", path="jwt")
     assert vc.hvac is inner
+
+
+@patch("lib.vault_client.hvac.Client")
+def test_authenticate_passes_tls_verify(mock_client_cls):
+    inner = MagicMock()
+    inner.auth.jwt.jwt_login.return_value = {"auth": {"client_token": "s.s"}}
+    mock_client_cls.return_value = inner
+    s = Settings(vault_addr="https://v:8200", ci_oidc_token="ci",
+                 parent_namespace="automation", jwt_mount="jwt",
+                 jwt_role="test-runner", strict_mode=False,
+                 vault_cacert="/etc/ssl/vault-ca.pem")
+    authenticate(s)
+    assert mock_client_cls.call_args.kwargs["verify"] == "/etc/ssl/vault-ca.pem"
+
+
+@patch("lib.vault_client.hvac.Client")
+def test_vault_client_forwards_verify(mock_client_cls):
+    mock_client_cls.return_value = MagicMock()
+    VaultClient(url="https://v:8200", verify=False)
+    assert mock_client_cls.call_args.kwargs["verify"] is False
